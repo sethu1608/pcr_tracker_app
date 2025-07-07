@@ -1,9 +1,10 @@
-FROM python:3.10-slim
+# Dockerfile
+FROM python:3.11-slim
 
 WORKDIR /app
 
 COPY . .
 
-RUN pip install flask mysql-connector-python requests
+RUN pip install --no-cache-dir -r requirements.txt
 
-CMD ["python", "web_app.py"]
+CMD ["python3", "web_app.py"]

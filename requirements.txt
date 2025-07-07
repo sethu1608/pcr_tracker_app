@@ -1,0 +1,8 @@
+flask
+dhanhq
+requests
+pandas
+matplotlib
+psycopg2-binary
+mysql-connector-python
+# OR: pymysql  ← (depending on your code)

@@ -1,19 +1,33 @@
 version: '3.8'
 
 services:
-  mysql:
-    image: mysql:8
-    environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: pcr_tracker
-    ports:
-      - "3306:3306"
-
-  pcr_app:
+  web:
     build: .
+    command: python3 web_app.py
     ports:
       - "5000:5000"
+    restart: always
     depends_on:
-      - mysql
+      - db
+
+  tracker:
+    build: .
+    command: python3 run_tracker.py
+    restart: "no"
+    depends_on:
+      - db
+
+  db:
+    image: postgres:14
+    container_name: pcr_postgres
     environment:
-      - DB_HOST=mysql
+      POSTGRES_USER: pcr_user
+      POSTGRES_PASSWORD: pcr_pass
+      POSTGRES_DB: pcr_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  pgdata:
+
