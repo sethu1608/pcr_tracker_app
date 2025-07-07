@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PCR Tracker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="p-4">
+<div class="container">
+    <h2 class="mb-4">PCR Tracker with Crossover Alerts</h2>
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <label class="form-label">Symbol:</label>
+            <select id="symbolDropdown" class="form-select" onchange="onSymbolChange()">
+                <option value="NSE_EQ_NIFTY">NIFTY</option>
+                <option value="NSE_EQ_BANKNIFTY">BANKNIFTY</option>
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Expiry:</label>
+            <select id="expiryDropdown" class="form-select" onchange="updateStrikes()">
+                <option value="">-- Select Expiry --</option>
+            </select>
+        </div>
+	 <div class="col-md-4">
+            <label class="form-label">Timeframe:</label>
+            <select id="timeframeDropdown" class="form-select" onchange="drawChart()">
+                <option value="3m" selected>3 MIN</option>
+                <option value="15m">15 MIN</option>
+		<option value="75m">75 MIN</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="strikeCheckboxes" class="mb-3"></div>
+    <div id="chartMessage" class="text-muted mb-3">📌 Please choose expiry date to view PCR chart.</div>
+    <canvas id="pcrChart" height="125"></canvas>
+</div>
+
+<script>
+let chart = null;
+
+async function onSymbolChange() {
+    clearChart();
+    document.getElementById("expiryDropdown").innerHTML = '<option value="">-- Select Expiry --</option>';
+    document.getElementById("strikeCheckboxes").innerHTML = '';
+    document.getElementById("chartMessage").textContent = "📌 Please choose expiry date to view PCR chart.";
+    await updateExpiryList();
+}
+
+async function updateExpiryList() {
+    const symbol = document.getElementById("symbolDropdown").value;
+    const expiryDropdown = document.getElementById("expiryDropdown");
+
+    try {
+        const res = await fetch(`/get_expiry_list?symbol=${symbol}`);
+        const data = await res.json();
+
+        data.forEach(exp => {
+            const option = document.createElement("option");
+            option.value = exp;
+            option.textContent = exp;
+            expiryDropdown.appendChild(option);
+        });
+    } catch (e) {
+        document.getElementById("chartMessage").textContent = "❌ Failed to load expiry list.";
+    }
+}
+
+async function updateStrikes() {
+    const symbol = document.getElementById("symbolDropdown").value;
+    const expiry = document.getElementById("expiryDropdown").value;
+    const container = document.getElementById("strikeCheckboxes");
+    const message = document.getElementById("chartMessage");
+
+    container.innerHTML = '';
+    clearChart();
+
+    if (!expiry) {
+        message.textContent = "📌 Please choose expiry date to view PCR chart.";
+        return;
+    }
+
+    const res = await fetch(`/get_strikes?symbol=${symbol}&expiry=${expiry}`);
+    const data = await res.json();
+    const strikes = data.strikes || [];
+
+    if (strikes.length === 0) {
+        message.textContent = "⚠️ No strike prices available.";
+        return;
+    }
+
+    message.textContent = "";  // Clear message
+    const atmIndex = Math.floor(strikes.length / 2);
+    const defaultStrikes = strikes.slice(atmIndex - 5, atmIndex + 6);
+
+    strikes.forEach(strike => {
+        const label = document.createElement("label");
+        label.className = "form-check-label me-3";
+
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.className = "form-check-input me-1";
+        input.value = strike;
+        input.checked = defaultStrikes.includes(strike);
+        input.onchange = drawChart;
+
+        label.appendChild(input);
+        label.append(` ${strike}`);
+        container.appendChild(label);
+    });
+
+    drawChart();
+}
+
+function clearChart() {
+    if (chart) {
+        chart.destroy();
+        chart = null;
+    }
+}
+
+async function drawChart() {
+  const symbol = document.getElementById("symbolDropdown").value;
+  const expiry = document.getElementById("expiryDropdown").value;
+  const timeframe = document.getElementById("timeframeDropdown").value;
+  const checkboxes = document.querySelectorAll("#strikeCheckboxes input:checked");
+  const strikes = Array.from(checkboxes).map(cb => cb.value);
+
+  const res = await fetch(`/get_pcr_data?symbol=${symbol}&expiry=${expiry}&timeframe=${timeframe}`);
+  const data = await res.json();
+  console.log("📊 Fetched Data:", data);
+
+  if (data.length === 0) {
+    alert("❌ No PCR data available");
+    return;
+  }
+
+  // ✅ Normalize timestamps (ISO format slice)
+  const timestamps = [...new Set(data.map(d => new Date(d.timestamp).toISOString().slice(0, 16)))];
+
+  // 🧠 Create strike → time → pcr mapping
+  const strikeData = {};
+  strikes.forEach(strike => {
+    strikeData[strike] = timestamps.map(t => {
+      const match = data.find(d =>
+        new Date(d.timestamp).toISOString().slice(0, 16) === t &&
+        d.strike_price == strike
+      );
+      return match ? match.pcr : null;
+    });
+  });
+
+  // 📈 Chart datasets
+  const datasets = strikes.map((strike, idx) => ({
+    label: strike,
+    data: strikeData[strike],
+    borderWidth: 2,
+    fill: false,
+    borderColor: `hsl(${(idx * 360) / strikes.length}, 70%, 50%)`,
+    pointRadius: 2,
+    tension: 0.1
+  }));
+
+  // 🔴 Detect crossovers
+  const crossoverPoints = [];
+  if (strikes.length >= 2) {
+    for (let i = 1; i < timestamps.length; i++) {
+      for (let s1 = 0; s1 < strikes.length; s1++) {
+        for (let s2 = s1 + 1; s2 < strikes.length; s2++) {
+          const p1_y0 = strikeData[strikes[s1]][i - 1];
+          const p2_y0 = strikeData[strikes[s2]][i - 1];
+          const p1_y1 = strikeData[strikes[s1]][i];
+          const p2_y1 = strikeData[strikes[s2]][i];
+          if (
+            p1_y0 != null && p2_y0 != null && p1_y1 != null && p2_y1 != null &&
+            ((p1_y0 > p2_y0 && p1_y1 < p2_y1) || (p1_y0 < p2_y0 && p1_y1 > p2_y1))
+          ) {
+            crossoverPoints.push({ x: timestamps[i], y: (p1_y1 + p2_y1) / 2 });
+          }
+        }
+      }
+    }
+  }
+
+  // 🧹 Destroy old chart if exists
+  if (chart) chart.destroy();
+
+  const ctx = document.getElementById("pcrChart").getContext("2d");
+  chart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: timestamps,
+      datasets: [
+        ...datasets,
+        {
+          type: "scatter",
+          label: "Crossovers",
+          data: crossoverPoints,
+          backgroundColor: "red",
+          pointRadius: 6,
+          pointStyle: "circle",
+          showLine: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: true }
+      },
+      scales: {
+        x: { title: { display: true, text: "Time" }},
+        y: { beginAtZero: true, title: { display: true, text: "PCR" }}
+      }
+    }
+  });
+}
+
+setInterval(drawChart, 3 * 60 * 1000);
+
+document.addEventListener("DOMContentLoaded", async () => {
+    await updateExpiryList();  // Load expiry list for default symbol
+});
+</script>
+</body>
+</html>
