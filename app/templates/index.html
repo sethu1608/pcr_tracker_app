@@ -138,19 +138,27 @@ async function drawChart() {
   }
 
   // ✅ Normalize timestamps (ISO format slice)
-  const timestamps = [...new Set(data.map(d => new Date(d.timestamp).toISOString().slice(0, 16)))];
+  const timestamps = [...new Set(data.map(d => {
+    const dt = new Date(d.timestamp);
+    dt.setMinutes(dt.getMinutes() + 330); // Add 5.5 hours (330 mins)
+    return dt.toISOString().replace("T", " ").slice(0, 16); // "YYYY-MM-DD HH:mm"
+}))];
 
   // 🧠 Create strike → time → pcr mapping
   const strikeData = {};
-  strikes.forEach(strike => {
-    strikeData[strike] = timestamps.map(t => {
-      const match = data.find(d =>
-        new Date(d.timestamp).toISOString().slice(0, 16) === t &&
-        d.strike_price == strike
-      );
-      return match ? match.pcr : null;
-    });
+strikes.forEach(strike => {
+  strikeData[strike] = timestamps.map(t => {
+    const match = data.find(d =>
+      (() => {
+        const dt = new Date(d.timestamp);
+        dt.setMinutes(dt.getMinutes() + 330);
+        return dt.toISOString().replace("T", " ").slice(0, 16);
+      })() === t &&
+      d.strike_price == strike
+    );
+    return match ? match.pcr : null;
   });
+});
 
   // 📈 Chart datasets
   const datasets = strikes.map((strike, idx) => ({

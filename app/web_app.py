@@ -1,7 +1,7 @@
 # web_app.py
 from flask import Flask, render_template, request, jsonify
-from app.dhan_api import get_expiry_list as dhan_expiry_list, get_option_chain
-from app.db import get_connection, get_pcr_data
+from dhan_api import get_expiry_list as dhan_expiry_list, get_option_chain
+from db import get_connection, get_pcr_data
 
 app = Flask(__name__)
 
@@ -63,13 +63,12 @@ def get_strikes_route():
 
     try:
         option_chain_response = get_option_chain(info["id"], info["segment"], expiry)
-        #print("🔍 Option Chain Response:", option_chain_response)  # Debug line
+        # print("🔍 Option Chain Response:", option_chain_response)  # Debug line
         strikes = get_strikes(option_chain_response)
         return jsonify({"strikes": strikes})
     except Exception as e:
         print(f"Error in /get_strikes: {e}")
         return jsonify({"strikes": []}), 500
-
 
 @app.route("/get_pcr_data")
 def get_pcr_data_route():
@@ -80,4 +79,4 @@ def get_pcr_data_route():
     return jsonify(data)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)

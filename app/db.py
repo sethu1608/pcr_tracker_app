@@ -1,54 +1,77 @@
 # app/db.py
-import mysql.connector
 from datetime import datetime
+import pytz
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-MYSQL_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',             # ✅ Change this
-    'password': 'root', # ✅ Change this
-    'database': 'pcr_tracker'   # ✅ Make sure this DB exists
+POSTGRES_CONFIG = {
+    'host': '13.203.155.8',
+    'port': 5432,
+    'user': 'pcr_user',
+    'password': 'pcr_pass',
+    'dbname': 'pcr_db'
 }
 
 def get_connection():
-    return mysql.connector.connect(**MYSQL_CONFIG)
+    return psycopg2.connect(**POSTGRES_CONFIG)
 
 def insert_pcr(symbol, expiry, strike_price, pcr, timestamp=None):
     conn = get_connection()
     cursor = conn.cursor()
+    if timestamp is None:
+        # ✅ Convert to IST
+        ist = pytz.timezone("Asia/Kolkata")
+        timestamp = datetime.now(ist)
     query = """
         INSERT INTO pcr_data (symbol, expiry, strike_price, pcr, timestamp)
         VALUES (%s, %s, %s, %s, %s)
     """
-    if timestamp is None:
-        timestamp = datetime.now()
     cursor.execute(query, (symbol, expiry, strike_price, pcr, timestamp))
     conn.commit()
     cursor.close()
     conn.close()
 
+from datetime import datetime
+import pytz
+
 def get_pcr_data(symbol, expiry, timeframe="3m"):
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     if timeframe == "3m":
-        group_expr = "timestamp"
+        time_bucket = "timestamp AT TIME ZONE 'Asia/Kolkata'"
     elif timeframe == "15m":
-        group_expr = "DATE_FORMAT(DATE_SUB(timestamp, INTERVAL MINUTE(timestamp) % 15 MINUTE), '%Y-%m-%d %H:%i:00')"
+        time_bucket = """
+            (date_trunc('minute', timestamp) - 
+            INTERVAL '1 minute' * (EXTRACT(minute FROM timestamp)::int %% 15)) AT TIME ZONE 'Asia/Kolkata'
+        """
     elif timeframe == "75m":
-        group_expr = "DATE_FORMAT(DATE_SUB(timestamp, INTERVAL MINUTE(timestamp) % 75 MINUTE), '%Y-%m-%d %H:%i:00')"
+        time_bucket = """
+            TO_TIMESTAMP(FLOOR(EXTRACT(EPOCH FROM timestamp) / (75 * 60)) * (75 * 60)) AT TIME ZONE 'Asia/Kolkata'
+        """
     else:
-        group_expr = "timestamp"
+        time_bucket = "timestamp AT TIME ZONE 'Asia/Kolkata'"
 
     query = f"""
-        SELECT strike_price, ROUND(AVG(pcr), 2) AS pcr,
-               {group_expr} AS timestamp
+        SELECT 
+            strike_price, 
+            ROUND(AVG(pcr)::numeric, 2) AS pcr,
+            {time_bucket} AS timestamp
         FROM pcr_data
-        WHERE symbol=%s AND expiry=%s
-        GROUP BY strike_price, {group_expr}
-        ORDER BY {group_expr}
+        WHERE symbol = %s AND expiry = %s
+        GROUP BY strike_price, {time_bucket}
+        ORDER BY {time_bucket}
     """
+
     cursor.execute(query, (symbol, expiry))
     data = cursor.fetchall()
     cursor.close()
     conn.close()
+
+    # 🛠 Format timestamps as IST strings
+    for row in data:
+        if isinstance(row["timestamp"], datetime):
+            ist = pytz.timezone("Asia/Kolkata")
+            row["timestamp"] = row["timestamp"].astimezone(ist).strftime("%Y-%m-%d %H:%M")
+
     return data

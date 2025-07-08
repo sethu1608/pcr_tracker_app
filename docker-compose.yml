@@ -3,7 +3,7 @@ version: '3.8'
 services:
   web:
     build: .
-    command: python3 web_app.py
+    command: python3 app/web_app.py
     ports:
       - "5000:5000"
     restart: always
@@ -12,7 +12,7 @@ services:
 
   tracker:
     build: .
-    command: python3 run_tracker.py
+    command: python3 app/pcr_fetcher.py
     restart: "no"
     depends_on:
       - db
@@ -26,8 +26,9 @@ services:
       POSTGRES_DB: pcr_db
     volumes:
       - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     restart: always
 
 volumes:
   pgdata:
-

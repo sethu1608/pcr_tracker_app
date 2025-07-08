@@ -1,6 +1,6 @@
 # app/dhan_api.py
 from dhanhq import dhanhq
-from app.config import DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN
+from config import DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN
 
 client = dhanhq(DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN)
 
