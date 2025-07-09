@@ -15,6 +15,7 @@ DHAN_ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicG
 
 SYMBOL_MAP = {
     "NSE_EQ_NIFTY": {"id": 13, "segment": "IDX_I"},
-    "NSE_EQ_BANKNIFTY": {"id": 25, "segment": "IDX_I"}
+    "NSE_EQ_BANKNIFTY": {"id": 25, "segment": "IDX_I"},
+    "BSE_EQ_SENSEX": {"id": 51, "segment": "IDX_B"}
 }
 

@@ -1,11 +1,10 @@
 # web_app.py
 from flask import Flask, render_template, request, jsonify
 from dhan_api import get_expiry_list as dhan_expiry_list, get_option_chain
-from db import get_connection, get_pcr_data
+from db import get_pcr_data, get_connection
 
 app = Flask(__name__)
 
-# Symbol mapping
 SYMBOL_MAP = {
     "NSE_EQ_NIFTY": {"id": 13, "segment": "IDX_I"},
     "NSE_EQ_BANKNIFTY": {"id": 25, "segment": "IDX_I"}
@@ -25,25 +24,19 @@ def get_expiry_list():
     return jsonify(expiry_list)
 
 def get_strikes(option_chain_response):
-    """
-    Returns 5 strikes above and 5 below the ATM based on max OI (fallback if underlyingValue not provided).
-    """
     try:
         oc_data = option_chain_response.get('data', {}).get('data', {}).get('oc', {})
         if not oc_data:
-            raise ValueError("Option chain data missing")
+            raise ValueError("Option chain missing")
 
-        strike_prices = sorted([float(strike) for strike in oc_data.keys()])
-        strike_map = {float(k): v for k, v in oc_data.items()}
+        strike_prices = sorted([float(k) for k in oc_data.keys() if k.replace('.', '', 1).isdigit()])
+        strike_map = {float(k): v for k, v in oc_data.items() if k.replace('.', '', 1).isdigit()}
 
-        # Fallback logic: choose ATM by highest CE/PE OI
-        def get_total_oi(data):
-            return data.get('ce', {}).get('oi', 0) + data.get('pe', {}).get('oi', 0)
-
-        atm_strike = max(strike_map.items(), key=lambda item: get_total_oi(item[1]))[0]
+        def total_oi(d): return d.get('ce', {}).get('oi', 0) + d.get('pe', {}).get('oi', 0)
+        atm_strike = max(strike_map.items(), key=lambda item: total_oi(item[1]))[0]
 
         atm_index = strike_prices.index(atm_strike)
-        lower = strike_prices[max(atm_index - 5, 0):atm_index]
+        lower = strike_prices[max(0, atm_index - 5):atm_index]
         upper = strike_prices[atm_index + 1:atm_index + 6]
 
         return lower + [atm_strike] + upper
@@ -60,14 +53,28 @@ def get_strikes_route():
         return jsonify({"strikes": []}), 400
 
     info = SYMBOL_MAP[symbol]
-
     try:
-        option_chain_response = get_option_chain(info["id"], info["segment"], expiry)
-        # print("🔍 Option Chain Response:", option_chain_response)  # Debug line
-        strikes = get_strikes(option_chain_response)
+        option_chain = get_option_chain(info["id"], info["segment"], expiry)
+        oc_data = option_chain.get('data', {}).get('data', {}).get('oc', {})
+        if not oc_data:
+            raise ValueError("Option chain missing")
+
+        strike_prices = sorted([float(k) for k in oc_data.keys() if k.replace('.', '', 1).isdigit()])
+        strike_map = {float(k): v for k, v in oc_data.items() if k.replace('.', '', 1).isdigit()}
+
+        def total_oi(d): return d.get('ce', {}).get('oi', 0) + d.get('pe', {}).get('oi', 0)
+        atm_strike = max(strike_map.items(), key=lambda item: total_oi(item[1]))[0]
+
+        atm_index = strike_prices.index(atm_strike)
+
+        # ✅ Pick 2 below + ATM + 2 above
+        lower = strike_prices[max(0, atm_index - 2):atm_index]
+        upper = strike_prices[atm_index + 1:atm_index + 3]
+        strikes = lower + [atm_strike] + upper
+
         return jsonify({"strikes": strikes})
     except Exception as e:
-        print(f"Error in /get_strikes: {e}")
+        print(f"❌ Error in /get_strikes: {e}")
         return jsonify({"strikes": []}), 500
 
 @app.route("/get_pcr_data")

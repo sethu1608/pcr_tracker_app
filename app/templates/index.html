@@ -1,166 +1,157 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>PCR Tracker</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="UTF-8">
+  <title>PCR Tracker</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="p-4">
 <div class="container">
-    <h2 class="mb-4">PCR Tracker with Crossover Alerts</h2>
-    <div class="row mb-3">
-        <div class="col-md-4">
-            <label class="form-label">Symbol:</label>
-            <select id="symbolDropdown" class="form-select" onchange="onSymbolChange()">
-                <option value="NSE_EQ_NIFTY">NIFTY</option>
-                <option value="NSE_EQ_BANKNIFTY">BANKNIFTY</option>
-            </select>
-        </div>
-        <div class="col-md-4">
-            <label class="form-label">Expiry:</label>
-            <select id="expiryDropdown" class="form-select" onchange="updateStrikes()">
-                <option value="">-- Select Expiry --</option>
-            </select>
-        </div>
-	 <div class="col-md-4">
-            <label class="form-label">Timeframe:</label>
-            <select id="timeframeDropdown" class="form-select" onchange="drawChart()">
-                <option value="3m" selected>3 MIN</option>
-                <option value="15m">15 MIN</option>
-		<option value="75m">75 MIN</option>
-            </select>
-        </div>
+  <h2 class="mb-4">PCR Tracker with Crossover Alerts</h2>
+  <div class="row mb-3">
+    <div class="col-md-4">
+      <label class="form-label">Symbol:</label>
+      <select id="symbolDropdown" class="form-select" onchange="onSymbolChange()">
+        <option value="NSE_EQ_NIFTY">NIFTY</option>
+        <option value="NSE_EQ_BANKNIFTY">BANKNIFTY</option>
+        <option value="BSE_EQ_SENSEX">SENSEX</option>
+      </select>
     </div>
+    <div class="col-md-4">
+      <label class="form-label">Expiry:</label>
+      <select id="expiryDropdown" class="form-select" onchange="updateStrikes()">
+        <option value="">-- Select Expiry --</option>
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Timeframe:</label>
+      <select id="timeframeDropdown" class="form-select" onchange="updateStrikes()">
+        <option value="3m" selected>3 MIN</option>
+        <option value="15m">15 MIN</option>
+        <option value="75m">75 MIN</option>
+      </select>
+    </div>
+  </div>
 
-    <div id="strikeCheckboxes" class="mb-3"></div>
-    <div id="chartMessage" class="text-muted mb-3">📌 Please choose expiry date to view PCR chart.</div>
-    <canvas id="pcrChart" height="125"></canvas>
+  <div id="strikeCheckboxes" class="mb-3"></div>
+  <div id="chartMessage" class="text-muted mb-3">📌 Please choose expiry date to view PCR chart.</div>
+  <canvas id="pcrChart" height="125"></canvas>
 </div>
 
 <script>
 let chart = null;
+let cachedPCRData = [];
 
 async function onSymbolChange() {
-    clearChart();
-    document.getElementById("expiryDropdown").innerHTML = '<option value="">-- Select Expiry --</option>';
-    document.getElementById("strikeCheckboxes").innerHTML = '';
-    document.getElementById("chartMessage").textContent = "📌 Please choose expiry date to view PCR chart.";
-    await updateExpiryList();
+  clearChart();
+  document.getElementById("expiryDropdown").innerHTML = '<option value="">-- Select Expiry --</option>';
+  document.getElementById("strikeCheckboxes").innerHTML = '';
+  document.getElementById("chartMessage").textContent = "📌 Please choose expiry date to view PCR chart.";
+  cachedPCRData = [];
+  await updateExpiryList();
 }
 
 async function updateExpiryList() {
-    const symbol = document.getElementById("symbolDropdown").value;
-    const expiryDropdown = document.getElementById("expiryDropdown");
+  const symbol = document.getElementById("symbolDropdown").value;
+  const expiryDropdown = document.getElementById("expiryDropdown");
 
-    try {
-        const res = await fetch(`/get_expiry_list?symbol=${symbol}`);
-        const data = await res.json();
-
-        data.forEach(exp => {
-            const option = document.createElement("option");
-            option.value = exp;
-            option.textContent = exp;
-            expiryDropdown.appendChild(option);
-        });
-    } catch (e) {
-        document.getElementById("chartMessage").textContent = "❌ Failed to load expiry list.";
-    }
+  try {
+    const res = await fetch(`/get_expiry_list?symbol=${symbol}`);
+    const data = await res.json();
+    data.forEach(exp => {
+      const option = document.createElement("option");
+      option.value = exp;
+      option.textContent = exp;
+      expiryDropdown.appendChild(option);
+    });
+  } catch {
+    document.getElementById("chartMessage").textContent = "❌ Failed to load expiry list.";
+  }
 }
 
 async function updateStrikes() {
-    const symbol = document.getElementById("symbolDropdown").value;
-    const expiry = document.getElementById("expiryDropdown").value;
-    const container = document.getElementById("strikeCheckboxes");
-    const message = document.getElementById("chartMessage");
+  const symbol = document.getElementById("symbolDropdown").value;
+  const expiry = document.getElementById("expiryDropdown").value;
+  const container = document.getElementById("strikeCheckboxes");
+  const message = document.getElementById("chartMessage");
+  cachedPCRData = [];
 
-    container.innerHTML = '';
-    clearChart();
+  container.innerHTML = '';
+  clearChart();
 
-    if (!expiry) {
-        message.textContent = "📌 Please choose expiry date to view PCR chart.";
-        return;
-    }
+  if (!expiry) {
+    message.textContent = "📌 Please choose expiry date to view PCR chart.";
+    return;
+  }
 
-    const res = await fetch(`/get_strikes?symbol=${symbol}&expiry=${expiry}`);
-    const data = await res.json();
-    const strikes = data.strikes || [];
+  const res = await fetch(`/get_strikes?symbol=${symbol}&expiry=${expiry}`);
+  const data = await res.json();
+  const strikes = data.strikes || [];
 
-    if (strikes.length === 0) {
-        message.textContent = "⚠️ No strike prices available.";
-        return;
-    }
+  if (strikes.length === 0) {
+    message.textContent = "⚠️ No strike prices available.";
+    return;
+  }
 
-    message.textContent = "";  // Clear message
-    const atmIndex = Math.floor(strikes.length / 2);
-    const defaultStrikes = strikes.slice(atmIndex - 5, atmIndex + 6);
+  message.textContent = "";  // Clear message
+  const defaultStrikes = [...strikes];  // Select all 5 by default
 
-    strikes.forEach(strike => {
-        const label = document.createElement("label");
-        label.className = "form-check-label me-3";
+  strikes.forEach(strike => {
+    const label = document.createElement("label");
+    label.className = "form-check-label me-3";
 
-        const input = document.createElement("input");
-        input.type = "checkbox";
-        input.className = "form-check-input me-1";
-        input.value = strike;
-        input.checked = defaultStrikes.includes(strike);
-        input.onchange = drawChart;
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "form-check-input me-1";
+    input.value = strike;
+    input.checked = defaultStrikes.includes(strike);
+    input.onchange = () => drawChart();
 
-        label.appendChild(input);
-        label.append(` ${strike}`);
-        container.appendChild(label);
-    });
+    label.appendChild(input);
+    label.append(` ${strike}`);
+    container.appendChild(label);
+  });
 
-    drawChart();
+  await drawChart(true); // forceRefresh true
 }
 
 function clearChart() {
-    if (chart) {
-        chart.destroy();
-        chart = null;
-    }
+  if (chart) {
+    chart.destroy();
+    chart = null;
+  }
 }
 
-async function drawChart() {
+async function drawChart(forceRefresh = false) {
   const symbol = document.getElementById("symbolDropdown").value;
   const expiry = document.getElementById("expiryDropdown").value;
   const timeframe = document.getElementById("timeframeDropdown").value;
   const checkboxes = document.querySelectorAll("#strikeCheckboxes input:checked");
   const strikes = Array.from(checkboxes).map(cb => cb.value);
 
-  const res = await fetch(`/get_pcr_data?symbol=${symbol}&expiry=${expiry}&timeframe=${timeframe}`);
-  const data = await res.json();
-  console.log("📊 Fetched Data:", data);
+  if (!expiry || strikes.length === 0) return;
 
-  if (data.length === 0) {
+  if (cachedPCRData.length === 0 || forceRefresh) {
+    const res = await fetch(`/get_pcr_data?symbol=${symbol}&expiry=${expiry}&timeframe=${timeframe}`);
+    cachedPCRData = await res.json();
+  }
+
+  if (cachedPCRData.length === 0) {
     alert("❌ No PCR data available");
     return;
   }
 
-  // ✅ Normalize timestamps (ISO format slice)
-  const timestamps = [...new Set(data.map(d => {
-    const dt = new Date(d.timestamp);
-    dt.setMinutes(dt.getMinutes() + 330); // Add 5.5 hours (330 mins)
-    return dt.toISOString().replace("T", " ").slice(0, 16); // "YYYY-MM-DD HH:mm"
-}))];
+  const timestamps = [...new Set(cachedPCRData.map(d => d.timestamp))];
 
-  // 🧠 Create strike → time → pcr mapping
   const strikeData = {};
-strikes.forEach(strike => {
-  strikeData[strike] = timestamps.map(t => {
-    const match = data.find(d =>
-      (() => {
-        const dt = new Date(d.timestamp);
-        dt.setMinutes(dt.getMinutes() + 330);
-        return dt.toISOString().replace("T", " ").slice(0, 16);
-      })() === t &&
-      d.strike_price == strike
-    );
-    return match ? match.pcr : null;
+  strikes.forEach(strike => {
+    strikeData[strike] = timestamps.map(t => {
+      const match = cachedPCRData.find(d => d.timestamp === t && d.strike_price == strike);
+      return match ? match.pcr : null;
+    });
   });
-});
 
-  // 📈 Chart datasets
   const datasets = strikes.map((strike, idx) => ({
     label: strike,
     data: strikeData[strike],
@@ -171,7 +162,6 @@ strikes.forEach(strike => {
     tension: 0.1
   }));
 
-  // 🔴 Detect crossovers
   const crossoverPoints = [];
   if (strikes.length >= 2) {
     for (let i = 1; i < timestamps.length; i++) {
@@ -192,9 +182,7 @@ strikes.forEach(strike => {
     }
   }
 
-  // 🧹 Destroy old chart if exists
-  if (chart) chart.destroy();
-
+  clearChart();
   const ctx = document.getElementById("pcrChart").getContext("2d");
   chart = new Chart(ctx, {
     type: "line",
@@ -215,9 +203,7 @@ strikes.forEach(strike => {
     },
     options: {
       responsive: true,
-      plugins: {
-        legend: { display: true }
-      },
+      plugins: { legend: { display: true }},
       scales: {
         x: { title: { display: true, text: "Time" }},
         y: { beginAtZero: true, title: { display: true, text: "PCR" }}
@@ -226,11 +212,10 @@ strikes.forEach(strike => {
   });
 }
 
-setInterval(drawChart, 3 * 60 * 1000);
+// Refresh every 3 min
+setInterval(() => drawChart(true), 3 * 60 * 1000);
 
-document.addEventListener("DOMContentLoaded", async () => {
-    await updateExpiryList();  // Load expiry list for default symbol
-});
+document.addEventListener("DOMContentLoaded", updateExpiryList);
 </script>
 </body>
 </html>
